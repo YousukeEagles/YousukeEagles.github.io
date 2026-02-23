@@ -62,13 +62,15 @@
         const team2List = document.getElementById('team2List');
         const team1Total = document.getElementById('team1Total');
         const team2Total = document.getElementById('team2Total');
+        let currentTeam1 = [];
+        let currentTeam2 = [];
 
         function renderRecorded(){
             recordedList.innerHTML = '';
             for(let i=0;i<recorded.length;i++){
                 const p = recorded[i];
                 const li = document.createElement('li');
-                // Show explicit fields or N/A; do NOT use any fallback here
+                // Display explicit rating fields or 'N/A'; do not provide fallback values here
                 const solo = (p.eloSolo!=null) ? p.eloSolo : 'N/A';
                 const two = (p.elo2v2!=null) ? p.elo2v2 : 'N/A';
                 const three = (p.elo3v3!=null) ? p.elo3v3 : 'N/A';
@@ -78,13 +80,14 @@
                 infoSpan.textContent = `${p.name} — 1v1:${solo} | 2v2:${two} | 3v3:${three} | 4v4:${four}`;
                 infoSpan.style.cursor = 'pointer';
                 infoSpan.addEventListener('click',()=>{
-                    // add a copy of recorded player to queue (do not fix elo here)
+                    // Do not add duplicate queued entries when the same profile ID already exists in queue
+                    if(p.id != null && queue.some(q => q && q.id != null && q.id === p.id)) return;
                     const copy = {...p};
                     queue.push(copy);
                     renderQueue();
                 });
 
-                // alias / custom name input for recorded player
+                // Alias (custom display name) input for the recorded player
                 const aliasInput = document.createElement('input');
                 aliasInput.type = 'text';
                 aliasInput.placeholder = 'alias';
@@ -104,9 +107,9 @@
                 removeBtn.addEventListener('click', e=>{
                     e.stopPropagation();
                     const idx = +e.target.dataset.i;
-                    // remove the recorded entry
+                    // Remove the recorded entry from `recorded`
                     const removed = recorded.splice(idx,1)[0];
-                    // also remove any queued copies that reference the same profile id or name
+                    // Also remove any queued copies that reference the same profile id or name
                     if(removed){
                         for(let qi = queue.length - 1; qi >= 0; qi--){
                             const q = queue[qi];
@@ -126,20 +129,20 @@
                 li.appendChild(removeBtn);
                 recordedList.appendChild(li);
             }
-            // persist recorded entries to cookie after rendering
+            // Save recorded entries (ids + custom aliases) to cookie after rendering
             saveRecordedToCookie();
         }
 
         function renderQueue(){
             queueList.innerHTML = '';
-                // infer match type from queue length for display: 4->2v2,6->3v3,8->4v4
+                // Infer match type from queue length for display: 4→2v2, 6→3v3, 8→4v4
                 const qlen = queue.length;
                 const matchTypeUsed = getInferredMatchType(qlen);
                 for(let i=0;i<queue.length;i++){
                     const p = queue[i];
-                    // only show elo when inferred match type is available (queue sizes 4,6,8)
+                    // Only display ELO when a match type can be inferred (queue lengths 4, 6, 8)
                     const baseElo = matchTypeUsed ? (pickElo(p, matchTypeUsed) ?? (p.eloSolo!=null ? p.eloSolo : null)) : null;
-                    // customElo overrides when set and non-zero
+                    // customElo overrides team/solo ratings when set and non-zero
                     const useCustom = (p.customElo!=null && Number(p.customElo) !== 0);
                     const eloVal = useCustom ? Number(p.customElo) : baseElo;
                     const displayElo = eloVal!=null ? eloVal : '—';
@@ -168,21 +171,117 @@
         }
 
         function renderTeams(t1,t2){
-            team1List.innerHTML=''; team2List.innerHTML='';
-            let s1=0,s2=0;
-                    for(const p of t1){
-                        const li = document.createElement('li'); li.textContent=`${p.name} — ${p.elo}`; team1List.appendChild(li); s1+=p.elo;
+                    team1List.innerHTML=''; team2List.innerHTML='';
+                    let s1=0,s2=0;
+                    // persist current teams so drag/drop can modify them
+                    currentTeam1 = t1.slice();
+                    currentTeam2 = t2.slice();
+                    // render team1
+                    for(let i=0;i<currentTeam1.length;i++){
+                        const p = currentTeam1[i];
+                        const li = document.createElement('li');
+                        li.textContent = `${p.name} — ${p.elo}`;
+                        li.draggable = true;
+                        li.dataset.from = 'team1';
+                        li.dataset.index = String(i);
+                        li.addEventListener('dragstart', e=>{
+                            e.dataTransfer.setData('application/json', JSON.stringify({from: 'team1', index: i}));
+                        });
+                        team1List.appendChild(li);
+                        s1+=p.elo;
                     }
-                    for(const p of t2){
-                        const li = document.createElement('li'); li.textContent=`${p.name} — ${p.elo}`; team2List.appendChild(li); s2+=p.elo;
-            }
-            team1Total.textContent = `Total ELO: ${s1}`;
-            team2Total.textContent = `Total ELO: ${s2}`;
+                    // render team2
+                    for(let i=0;i<currentTeam2.length;i++){
+                        const p = currentTeam2[i];
+                        const li = document.createElement('li');
+                        li.textContent = `${p.name} — ${p.elo}`;
+                        li.draggable = true;
+                        li.dataset.from = 'team2';
+                        li.dataset.index = String(i);
+                        li.addEventListener('dragstart', e=>{
+                            e.dataTransfer.setData('application/json', JSON.stringify({from: 'team2', index: i}));
+                        });
+                        team2List.appendChild(li);
+                        s2+=p.elo;
+                    }
+                    team1Total.textContent = `Total ELO: ${s1}`;
+                    team2Total.textContent = `Total ELO: ${s2}`;
         }
+
+        // Allow dropping between teams and from/to queue
+        function handleDropOnTeam(target){
+            return function(e){
+                e.preventDefault();
+                try{
+                    const raw = e.dataTransfer.getData('application/json');
+                    if(!raw) return;
+                    const obj = JSON.parse(raw);
+                    // moving from team1/team2
+                    if(obj.from === 'team1' || obj.from === 'team2'){
+                        const src = obj.from === 'team1' ? currentTeam1 : currentTeam2;
+                        const srcIdx = Number(obj.index);
+                        if(!Number.isFinite(srcIdx)) return;
+                        const player = src.splice(srcIdx,1)[0];
+                        const dst = target === 'team1' ? currentTeam1 : currentTeam2;
+                        dst.push(player);
+                    } else if(obj.from === 'queue'){
+                        const qIdx = Number(obj.index);
+                        if(!Number.isFinite(qIdx)) return;
+                        const player = queue.splice(qIdx,1)[0];
+                        // compute elo for player when moved from queue
+                        const custom = (player.customElo!=null && Number(player.customElo)!==0) ? Number(player.customElo) : null;
+                        const val = custom != null ? custom : (pickElo(player, getInferredMatchType(queue.length)) ?? (player.eloSolo!=null ? player.eloSolo : null));
+                        const elo = (val!=null ? val : 0);
+                        const dst = target === 'team1' ? currentTeam1 : currentTeam2;
+                        dst.push({...player, elo});
+                    }
+                    renderTeams(currentTeam1, currentTeam2);
+                    renderQueue();
+                }catch(err){ console.warn('drop failed',err); }
+            };
+        }
+
+        // allow dragging a team member back to the queue
+        function handleDropOnQueue(e){
+            e.preventDefault();
+            try{
+                const raw = e.dataTransfer.getData('application/json');
+                if(!raw) return;
+                const obj = JSON.parse(raw);
+                if(obj.from === 'team1' || obj.from === 'team2'){
+                    const src = obj.from === 'team1' ? currentTeam1 : currentTeam2;
+                    const srcIdx = Number(obj.index);
+                    if(!Number.isFinite(srcIdx)) return;
+                    const player = src.splice(srcIdx,1)[0];
+                    // push back to queue without the computed elo field
+                    const cleaned = { ...player };
+                    delete cleaned.elo;
+                    queue.push(cleaned);
+                    renderTeams(currentTeam1, currentTeam2);
+                    renderQueue();
+                }
+            }catch(err){ console.warn('drop to queue failed',err); }
+        }
+
+        // attach drop handlers to lists (backwards-compatible)
+        team1List.addEventListener('dragover', e=> e.preventDefault());
+        team2List.addEventListener('dragover', e=> e.preventDefault());
+        queueList.addEventListener('dragover', e=> e.preventDefault());
+        team1List.addEventListener('drop', handleDropOnTeam('team1'));
+        team2List.addEventListener('drop', handleDropOnTeam('team2'));
+        queueList.addEventListener('drop', handleDropOnQueue);
+
+        // Also attach handlers to the entire panel columns so the whole column is a drop zone
+        const team1Panel = document.getElementById('team1');
+        const team2Panel = document.getElementById('team2');
+        const joiningPanel = document.getElementById('joining');
+        if(team1Panel){ team1Panel.addEventListener('dragover', e=> e.preventDefault()); team1Panel.addEventListener('drop', handleDropOnTeam('team1')); }
+        if(team2Panel){ team2Panel.addEventListener('dragover', e=> e.preventDefault()); team2Panel.addEventListener('drop', handleDropOnTeam('team2')); }
+        if(joiningPanel){ joiningPanel.addEventListener('dragover', e=> e.preventDefault()); joiningPanel.addEventListener('drop', handleDropOnQueue); }
 
         function pickElo(p, matchType){
             // matchType: '2v2'|'3v3'|'4v4'
-            // No fallback: return only the exact team rating or null if missing
+            // Return the exact team rating for the given match type, or null if unavailable (no fallback)
             if(!p) return null;
             if(matchType==='2v2') return (p.elo2v2!=null ? p.elo2v2 : null);
             if(matchType==='3v3') return (p.elo3v3!=null ? p.elo3v3 : null);
@@ -200,7 +299,7 @@
         document.getElementById('joinBtn').addEventListener('click',()=>{
             const name = document.getElementById('name').value.trim();
             if(!name) return alert('Enter a profile ID');
-            // If name is numeric, treat as profile id and try fetch; otherwise manual add to recorded only
+            // Treat numeric input as a profile ID and fetch data; otherwise add a manual recorded entry
             if(/^[0-9]+$/.test(name)){
                 fetchAndAdd(name);
                 document.getElementById('name').value='';
@@ -213,9 +312,9 @@
             document.getElementById('name').value='';
         });
 
-        // Fetch is now merged into Join; no separate fetch button.
+        // Note: fetching is triggered via the Join button for numeric profile IDs.
 
-        // Helper: fetch player data and return a player object (does NOT mutate recorded)
+        // Fetch player data from API and return a normalized player object (does not modify `recorded`)
         async function fetchPlayer(profileId){
             const url = `https://aoe4world.com/api/v0/players/${profileId}`;
             try{
@@ -248,7 +347,7 @@
             }
         }
 
-        // Backwards-compatible wrapper: fetch and add a single player to recorded
+        // Fetch a player by profile ID and upsert into `recorded` (does not auto-queue)
         async function fetchAndAdd(profileId){
             const p = await fetchPlayer(profileId);
             if(!p) return;
@@ -262,7 +361,7 @@
             renderRecorded(); renderQueue();
         }
 
-        // Persist recorded players (id, name, customName) to a cookie
+        // Persist recorded players (id and customName) to a cookie for later reload
         function saveRecordedToCookie(){
             try{
                 // only persist entries that have an id (we fetch name from API on load)
@@ -275,6 +374,7 @@
             }
         }
 
+        // Load recorded player IDs from cookie and refresh `recorded` by fetching current data
         async function loadRecordedFromCookie(){
             try{
                 const match = document.cookie.split('; ').find(row=>row.startsWith('aoe4_recorded='));
@@ -303,34 +403,73 @@
             }catch(e){ console.warn('Could not load recorded from cookie',e); }
         }
 
-        // Note: No getRating or fallback logic — ratings are read only from explicit rm_*_elo fields
+        // Note: Ratings are read only from explicit `rm_*_elo` fields; no fallback rating logic is used.
 
         document.getElementById('clearQueue').addEventListener('click',()=>{ queue.length=0; renderQueue(); renderTeams([],[]); });
 
         document.getElementById('sortBtn').addEventListener('click',()=>{
-            // Determine match type from queue length: 4->2v2, 6->3v3, 8->4v4 (auto-only)
+            // Determine match type from queue length: 4→2v2, 6→3v3, 8→4v4 (auto only)
             const qlen = queue.length;
             const matchTypeUsed = getInferredMatchType(qlen);
             if(!matchTypeUsed){ alert('Queue length must be exactly 4, 6, or 8 to sort into teams'); return; }
 
-            // Recompute elo for each queued player based on inferred match type
-            // missing elos become 0 for balancing so sorting math works predictably
+            // Recompute ELO for each queued player based on the inferred match type.
+            // Missing ratings default to 0 so balancing works predictably.
             const players = queue.map(p=>{
-                // customElo overrides team/solo ratings for sorting when non-zero
+                // customElo (if set and non-zero) overrides the team/solo rating for sorting
                 const custom = (p.customElo!=null && Number(p.customElo)!==0) ? Number(p.customElo) : null;
                 const val = custom != null ? custom : (pickElo(p, matchTypeUsed) ?? (p.eloSolo!=null ? p.eloSolo : null));
                 return { ...p, elo: (val!=null ? val : 0) };
             });
-            // Greedy balance: sort by elo desc, assign to currently weaker team
-            players.sort((a,b)=> b.elo - a.elo);
-            const t1 = [], t2 = []; let s1=0,s2=0;
-            for(const p of players){
-                if(s1 <= s2){ t1.push(p); s1+=p.elo; } else { t2.push(p); s2+=p.elo; }
+
+            // For small player counts, perform an exhaustive search for the partition
+            // that minimizes the absolute difference in total ELO between teams.
+            const total = players.reduce((s,p)=>s+p.elo,0);
+            const teamSize = players.length / 2;
+
+            function combinations(n,k){
+                const res = [];
+                const combo = [];
+                function helper(start){
+                    if(combo.length === k){ res.push(combo.slice()); return; }
+                    for(let i = start; i < n; i++){
+                        combo.push(i);
+                        helper(i+1);
+                        combo.pop();
+                    }
+                }
+                helper(0);
+                return res;
             }
+
+            let bestCombo = null;
+            let bestDiff = Infinity;
+
+            const combs = combinations(players.length, teamSize);
+            for(const combo of combs){
+                const s1 = combo.reduce((s,i)=>s + players[i].elo, 0);
+                const s2 = total - s1;
+                const diff = Math.abs(s1 - s2);
+                if(diff < bestDiff){ bestDiff = diff; bestCombo = combo.slice(); }
+            }
+
+            let t1 = [], t2 = [];
+            if(bestCombo){
+                const set = new Set(bestCombo);
+                for(let i=0;i<players.length;i++){
+                    if(set.has(i)) t1.push(players[i]); else t2.push(players[i]);
+                }
+            } else {
+                // Fallback (shouldn't happen) to greedy assignment
+                players.sort((a,b)=> b.elo - a.elo);
+                let s1=0,s2=0;
+                for(const p of players){ if(s1<=s2){ t1.push(p); s1+=p.elo; } else { t2.push(p); s2+=p.elo; } }
+            }
+
             renderTeams(t1,t2);
         });
 
-        // initial render: load saved recorded players from cookie (if any)
+        // Initial render: load saved recorded players from cookie (if any), then render UIs
         loadRecordedFromCookie().then(()=>{ renderQueue(); renderTeams([],[]); }).catch(()=>{ renderRecorded(); renderQueue(); renderTeams([],[]); });
     </script>
 </body>
