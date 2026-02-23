@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>AOE4 Team Tool</title>
+    <style>
+        html,body{height:100%;margin:0;font-family:Segoe UI,Arial,sans-serif}
+        .container{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;padding:12px;height:100vh;box-sizing:border-box}
+        .panel{background:#f7f7f8;border:1px solid #ddd;border-radius:6px;padding:12px;display:flex;flex-direction:column}
+        .panel h2{margin:0 0 8px 0;font-size:16px}
+        ul{list-style:none;padding:0;margin:0;overflow:auto}
+        li{padding:6px 8px;border-radius:4px;margin-bottom:6px;background:#fff;border:1px solid #e6e6e6;display:flex;justify-content:space-between;align-items:center}
+        .controls{display:flex;gap:6px;margin-bottom:8px}
+        input[type=number]{width:100px}
+        button{padding:6px 8px;border-radius:4px;border:1px solid #bbb;background:#eee;cursor:pointer}
+        .team-total{margin-top:8px;font-weight:600}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <section id="recorded" class="panel">
+            <h2>Recorded Players</h2>
+            
+            <div class="controls">
+                <input id="name" placeholder="Profile ID">
+                <button id="joinBtn">Join</button>
+            </div>
+            <ul id="recordedList"></ul>
+            <small>Click a recorded player to add to queue.</small>
+        </section>
+
+        <section id="joining" class="panel">
+            <h2>Queue</h2>
+            <ul id="queueList"></ul>
+            <div style="margin-top:8px" class="controls">
+                <button id="sortBtn">Sort into Teams</button>
+                <button id="clearQueue">Clear Queue</button>
+            </div>
+        </section>
+
+        <section id="team1" class="panel">
+            <h2>Team 1</h2>
+            <ul id="team1List"></ul>
+            <div id="team1Total" class="team-total"></div>
+        </section>
+
+        <section id="team2" class="panel">
+            <h2>Team 2</h2>
+            <ul id="team2List"></ul>
+            <div id="team2Total" class="team-total"></div>
+        </section>
+    </div>
+
+    <script>
+        const recorded = [];
+        const queue = [];
+
+        const recordedList = document.getElementById('recordedList');
+        const queueList = document.getElementById('queueList');
+        const team1List = document.getElementById('team1List');
+        const team2List = document.getElementById('team2List');
+        const team1Total = document.getElementById('team1Total');
+        const team2Total = document.getElementById('team2Total');
+
+        function renderRecorded(){
+            recordedList.innerHTML = '';
+            for(let i=0;i<recorded.length;i++){
+                const p = recorded[i];
+                const li = document.createElement('li');
+                // Show explicit fields or N/A; do NOT use any fallback here
+                const solo = (p.eloSolo!=null) ? p.eloSolo : 'N/A';
+                const two = (p.elo2v2!=null) ? p.elo2v2 : 'N/A';
+                const three = (p.elo3v3!=null) ? p.elo3v3 : 'N/A';
+                const four = (p.elo4v4!=null) ? p.elo4v4 : 'N/A';
+
+                const infoSpan = document.createElement('span');
+                infoSpan.textContent = `${p.name} — 1v1:${solo} | 2v2:${two} | 3v3:${three} | 4v4:${four}`;
+                infoSpan.style.cursor = 'pointer';
+                infoSpan.addEventListener('click',()=>{
+                    // add a copy of recorded player to queue (do not fix elo here)
+                    const copy = {...p};
+                    queue.push(copy);
+                    renderQueue();
+                });
+
+                // alias / custom name input for recorded player
+                const aliasInput = document.createElement('input');
+                aliasInput.type = 'text';
+                aliasInput.placeholder = 'alias';
+                aliasInput.value = p.customName != null ? p.customName : '';
+                aliasInput.style.marginLeft = '8px';
+                aliasInput.addEventListener('click', e=> e.stopPropagation());
+                aliasInput.addEventListener('change', e=>{
+                    e.stopPropagation();
+                    const v = String(e.target.value).trim();
+                    if(v === ''){ delete p.customName; } else { p.customName = v; }
+                    renderRecorded();
+                });
+
+                const removeBtn = document.createElement('button');
+                removeBtn.textContent = 'remove';
+                removeBtn.dataset.i = String(i);
+                removeBtn.addEventListener('click', e=>{
+                    e.stopPropagation();
+                    const idx = +e.target.dataset.i;
+                    // remove the recorded entry
+                    const removed = recorded.splice(idx,1)[0];
+                    // also remove any queued copies that reference the same profile id or name
+                    if(removed){
+                        for(let qi = queue.length - 1; qi >= 0; qi--){
+                            const q = queue[qi];
+                            if(removed.id != null && q.id != null){
+                                if(q.id === removed.id) queue.splice(qi,1);
+                            } else if(removed.id == null){
+                                if(q.name === removed.name) queue.splice(qi,1);
+                            }
+                        }
+                    }
+                    renderRecorded();
+                    renderQueue();
+                });
+
+                li.appendChild(infoSpan);
+                li.appendChild(aliasInput);
+                li.appendChild(removeBtn);
+                recordedList.appendChild(li);
+            }
+            // persist recorded entries to cookie after rendering
+            saveRecordedToCookie();
+        }
+
+        function renderQueue(){
+            queueList.innerHTML = '';
+                // infer match type from queue length for display: 4->2v2,6->3v3,8->4v4
+                const qlen = queue.length;
+                const matchTypeUsed = getInferredMatchType(qlen);
+                for(let i=0;i<queue.length;i++){
+                    const p = queue[i];
+                    // only show elo when inferred match type is available (queue sizes 4,6,8)
+                    const baseElo = matchTypeUsed ? (pickElo(p, matchTypeUsed) ?? (p.eloSolo!=null ? p.eloSolo : null)) : null;
+                    // customElo overrides when set and non-zero
+                    const useCustom = (p.customElo!=null && Number(p.customElo) !== 0);
+                    const eloVal = useCustom ? Number(p.customElo) : baseElo;
+                    const displayElo = eloVal!=null ? eloVal : '—';
+                    const li = document.createElement('li');
+                    const nameSpan = document.createElement('span');
+                    nameSpan.textContent = p.name + (matchTypeUsed ? ' — ' + displayElo : '');
+                    const customInput = document.createElement('input');
+                    customInput.type = 'number';
+                    customInput.placeholder = 'custom';
+                    customInput.value = p.customElo != null ? p.customElo : '';
+                    customInput.style.width = '80px';
+                    customInput.style.marginLeft = '8px';
+                    customInput.addEventListener('change', e=>{
+                        const v = Number(e.target.value);
+                        if(Number.isNaN(v) || v===0){ delete p.customElo; } else { p.customElo = v; }
+                        renderQueue();
+                    });
+                    const removeBtn = document.createElement('button');
+                    removeBtn.textContent = 'remove'; removeBtn.dataset.i = String(i);
+                    removeBtn.addEventListener('click', e=>{ const idx = +e.target.dataset.i; queue.splice(idx,1); renderQueue(); });
+                    li.appendChild(nameSpan);
+                    li.appendChild(customInput);
+                    li.appendChild(removeBtn);
+                    queueList.appendChild(li);
+                }
+        }
+
+        function renderTeams(t1,t2){
+            team1List.innerHTML=''; team2List.innerHTML='';
+            let s1=0,s2=0;
+                    for(const p of t1){
+                        const li = document.createElement('li'); li.textContent=`${p.name} — ${p.elo}`; team1List.appendChild(li); s1+=p.elo;
+                    }
+                    for(const p of t2){
+                        const li = document.createElement('li'); li.textContent=`${p.name} — ${p.elo}`; team2List.appendChild(li); s2+=p.elo;
+            }
+            team1Total.textContent = `Total ELO: ${s1}`;
+            team2Total.textContent = `Total ELO: ${s2}`;
+        }
+
+        function pickElo(p, matchType){
+            // matchType: '2v2'|'3v3'|'4v4'
+            // No fallback: return only the exact team rating or null if missing
+            if(!p) return null;
+            if(matchType==='2v2') return (p.elo2v2!=null ? p.elo2v2 : null);
+            if(matchType==='3v3') return (p.elo3v3!=null ? p.elo3v3 : null);
+            if(matchType==='4v4') return (p.elo4v4!=null ? p.elo4v4 : null);
+            return null;
+        }
+
+        function getInferredMatchType(qlen){
+            if(qlen===4) return '2v2';
+            if(qlen===6) return '3v3';
+            if(qlen===8) return '4v4';
+            return null;
+        }
+
+        document.getElementById('joinBtn').addEventListener('click',()=>{
+            const name = document.getElementById('name').value.trim();
+            if(!name) return alert('Enter a profile ID');
+            // If name is numeric, treat as profile id and try fetch; otherwise manual add to recorded only
+            if(/^[0-9]+$/.test(name)){
+                fetchAndAdd(name);
+                document.getElementById('name').value='';
+                return;
+            }
+            const p = {name};
+            // add to recorded only (do not auto-add to queue)
+            recorded.push(p);
+            renderRecorded();
+            document.getElementById('name').value='';
+        });
+
+        // Fetch is now merged into Join; no separate fetch button.
+
+        // Helper: fetch player data and return a player object (does NOT mutate recorded)
+        async function fetchPlayer(profileId){
+            const url = `https://aoe4world.com/api/v0/players/${profileId}`;
+            try{
+                const res = await fetch(url);
+                if(!res.ok) throw new Error('Fetch failed');
+                const data = await res.json();
+                function numeric(v){ return (typeof v==='number' && !Number.isNaN(v)) ? v : null; }
+                function getEloField(dataObj, fieldName, modeKeys=[]){
+                    if(dataObj && (fieldName in dataObj)) return numeric(dataObj[fieldName]);
+                    if(dataObj && dataObj.modes && Array.isArray(modeKeys)){
+                        for(const k of modeKeys){
+                            if(k in dataObj.modes && dataObj.modes[k] && typeof dataObj.modes[k].rating === 'number'){
+                                return dataObj.modes[k].rating;
+                            }
+                        }
+                    }
+                    return null;
+                }
+                return {
+                    id: (data.profile_id || Number(profileId)),
+                    name: data.name || `#${profileId}`,
+                    eloSolo: getEloField(data, 'rm_1v1_elo', ['rm_1v1_elo']),
+                    elo2v2: getEloField(data, 'rm_2v2_elo', ['rm_2v2_elo']),
+                    elo3v3: getEloField(data, 'rm_3v3_elo', ['rm_3v3_elo']),
+                    elo4v4: getEloField(data, 'rm_4v4_elo', ['rm_4v4_elo'])
+                };
+            }catch(err){
+                console.warn('fetchPlayer failed for',profileId,err);
+                return null;
+            }
+        }
+
+        // Backwards-compatible wrapper: fetch and add a single player to recorded
+        async function fetchAndAdd(profileId){
+            const p = await fetchPlayer(profileId);
+            if(!p) return;
+            const existingIndex = recorded.findIndex(r => r.id && p.id && r.id === p.id);
+            if(existingIndex >= 0){
+                recorded[existingIndex] = { ...recorded[existingIndex], ...p };
+            } else {
+                recorded.push(p);
+            }
+            // Do NOT auto-add to queue when fetching — only update recorded list
+            renderRecorded(); renderQueue();
+        }
+
+        // Persist recorded players (id, name, customName) to a cookie
+        function saveRecordedToCookie(){
+            try{
+                // only persist entries that have an id (we fetch name from API on load)
+                const data = recorded.filter(p=>p.id!=null).map(p=>({ id: p.id, customName: p.customName || null }));
+                const json = encodeURIComponent(JSON.stringify(data));
+                // expire in 1 year
+                document.cookie = `aoe4_recorded=${json};path=/;max-age=${60*60*24*365}`;
+            }catch(e){
+                console.warn('Could not save recorded to cookie',e);
+            }
+        }
+
+        async function loadRecordedFromCookie(){
+            try{
+                const match = document.cookie.split('; ').find(row=>row.startsWith('aoe4_recorded='));
+                if(!match) return;
+                const json = decodeURIComponent(match.split('=')[1] || '');
+                if(!json) return;
+                const arr = JSON.parse(json);
+                if(!Array.isArray(arr)) return;
+                // collect ids and fetch concurrently
+                const ids = arr.filter(it => it && it.id).map(it => it.id);
+                const fetchPromises = ids.map(id => fetchPlayer(id));
+                const results = await Promise.all(fetchPromises);
+                // upsert results and reapply aliases from cookie data
+                for(const p of results){
+                    if(!p) continue;
+                    const existingIndex = recorded.findIndex(r => r.id && p.id && r.id === p.id);
+                    if(existingIndex >= 0){ recorded[existingIndex] = { ...recorded[existingIndex], ...p }; }
+                    else { recorded.push(p); }
+                    const cookieItem = arr.find(it => Number(it.id) === Number(p.id));
+                    if(cookieItem && cookieItem.customName){
+                        const idx = recorded.findIndex(r => r.id && r.id === p.id);
+                        if(idx>=0) recorded[idx].customName = cookieItem.customName;
+                    }
+                }
+                renderRecorded();
+            }catch(e){ console.warn('Could not load recorded from cookie',e); }
+        }
+
+        // Note: No getRating or fallback logic — ratings are read only from explicit rm_*_elo fields
+
+        document.getElementById('clearQueue').addEventListener('click',()=>{ queue.length=0; renderQueue(); renderTeams([],[]); });
+
+        document.getElementById('sortBtn').addEventListener('click',()=>{
+            // Determine match type from queue length: 4->2v2, 6->3v3, 8->4v4 (auto-only)
+            const qlen = queue.length;
+            const matchTypeUsed = getInferredMatchType(qlen);
+            if(!matchTypeUsed){ alert('Queue length must be exactly 4, 6, or 8 to sort into teams'); return; }
+
+            // Recompute elo for each queued player based on inferred match type
+            // missing elos become 0 for balancing so sorting math works predictably
+            const players = queue.map(p=>{
+                // customElo overrides team/solo ratings for sorting when non-zero
+                const custom = (p.customElo!=null && Number(p.customElo)!==0) ? Number(p.customElo) : null;
+                const val = custom != null ? custom : (pickElo(p, matchTypeUsed) ?? (p.eloSolo!=null ? p.eloSolo : null));
+                return { ...p, elo: (val!=null ? val : 0) };
+            });
+            // Greedy balance: sort by elo desc, assign to currently weaker team
+            players.sort((a,b)=> b.elo - a.elo);
+            const t1 = [], t2 = []; let s1=0,s2=0;
+            for(const p of players){
+                if(s1 <= s2){ t1.push(p); s1+=p.elo; } else { t2.push(p); s2+=p.elo; }
+            }
+            renderTeams(t1,t2);
+        });
+
+        // initial render: load saved recorded players from cookie (if any)
+        loadRecordedFromCookie().then(()=>{ renderQueue(); renderTeams([],[]); }).catch(()=>{ renderRecorded(); renderQueue(); renderTeams([],[]); });
+    </script>
+</body>
+</html>
