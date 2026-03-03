@@ -142,8 +142,8 @@
                 li.appendChild(removeBtn);
                 recordedList.appendChild(li);
             }
-            // Save recorded entries (ids + custom aliases) to cookie after rendering
-            saveRecordedToCookie();
+            // Save recorded entries (ids + custom aliases) to localStorage after rendering
+            saveRecordedToLocalStorage();
         }
 
         // Export recorded entries (id, name, customName) as JSON file
@@ -183,6 +183,8 @@
                     }
                 }
                 renderRecorded(); renderQueue();
+                // persist imported entries to localStorage
+                saveRecordedToLocalStorage();
             }catch(err){ console.warn('import failed',err); alert('Import failed: see console'); }
         }
 
@@ -414,21 +416,43 @@
             renderRecorded(); renderQueue();
         }
 
-        // Persist recorded players (id and customName) to a cookie for later reload
-        function saveRecordedToCookie(){
+        // Persist recorded players (id and customName) to localStorage for later reload
+        function saveRecordedToLocalStorage(){
             try{
-                // only persist entries that have an id (we fetch name from API on load)
                 const data = recorded.filter(p=>p.id!=null).map(p=>({ id: p.id, customName: p.customName || null }));
-                const json = encodeURIComponent(JSON.stringify(data));
-                // expire in 1 year
-                document.cookie = `aoe4_recorded=${json};path=/;max-age=${60*60*24*365}`;
+                localStorage.setItem('aoe4_recorded', JSON.stringify(data));
             }catch(e){
-                console.warn('Could not save recorded to cookie',e);
+                console.warn('Could not save recorded to localStorage',e);
             }
         }
 
-        // Load recorded player IDs from cookie and refresh `recorded` by fetching current data
-        async function loadRecordedFromCookie(){
+        // Load recorded player IDs from localStorage and refresh `recorded` by fetching current data
+        async function loadRecordedFromLocalStorage(){
+            try{
+                const raw = localStorage.getItem('aoe4_recorded');
+                if(!raw) return;
+                const arr = JSON.parse(raw);
+                if(!Array.isArray(arr)) return;
+                const ids = arr.filter(it => it && it.id).map(it => it.id);
+                const fetchPromises = ids.map(id => fetchPlayer(id));
+                const results = await Promise.all(fetchPromises);
+                for(const p of results){
+                    if(!p) continue;
+                    const existingIndex = recorded.findIndex(r => r.id && p.id && r.id === p.id);
+                    if(existingIndex >= 0){ recorded[existingIndex] = { ...recorded[existingIndex], ...p }; }
+                    else { recorded.push(p); }
+                    const item = arr.find(it => Number(it.id) === Number(p.id));
+                    if(item && item.customName){
+                        const idx = recorded.findIndex(r => r.id && r.id === p.id);
+                        if(idx>=0) recorded[idx].customName = item.customName;
+                    }
+                }
+                renderRecorded();
+            }catch(e){ console.warn('Could not load recorded from localStorage',e); }
+        }
+
+        // Migrate old cookie storage to localStorage if present (one-time)
+        function migrateCookieToLocalStorage(){
             try{
                 const match = document.cookie.split('; ').find(row=>row.startsWith('aoe4_recorded='));
                 if(!match) return;
@@ -436,24 +460,29 @@
                 if(!json) return;
                 const arr = JSON.parse(json);
                 if(!Array.isArray(arr)) return;
-                // collect ids and fetch concurrently
-                const ids = arr.filter(it => it && it.id).map(it => it.id);
-                const fetchPromises = ids.map(id => fetchPlayer(id));
-                const results = await Promise.all(fetchPromises);
-                // upsert results and reapply aliases from cookie data
-                for(const p of results){
-                    if(!p) continue;
-                    const existingIndex = recorded.findIndex(r => r.id && p.id && r.id === p.id);
-                    if(existingIndex >= 0){ recorded[existingIndex] = { ...recorded[existingIndex], ...p }; }
-                    else { recorded.push(p); }
-                    const cookieItem = arr.find(it => Number(it.id) === Number(p.id));
-                    if(cookieItem && cookieItem.customName){
-                        const idx = recorded.findIndex(r => r.id && r.id === p.id);
-                        if(idx>=0) recorded[idx].customName = cookieItem.customName;
-                    }
+                // if localStorage has existing entries, merge deduping by id
+                const existingRaw = localStorage.getItem('aoe4_recorded');
+                if(existingRaw){
+                    try{
+                        const existing = JSON.parse(existingRaw);
+                        if(Array.isArray(existing)){
+                            const map = new Map();
+                            // add existing first
+                            for(const it of existing){ if(it && it.id!=null) map.set(String(it.id), it); }
+                            // merge cookie items, prefer cookie customName if present
+                            for(const it of arr){ if(it && it.id!=null){ const key=String(it.id); const prev = map.get(key) || {}; const merged = { id: it.id, customName: (it.customName!=null? it.customName : prev.customName || null) }; map.set(key, merged); } }
+                            const mergedArr = Array.from(map.values());
+                            localStorage.setItem('aoe4_recorded', JSON.stringify(mergedArr));
+                        } else {
+                            localStorage.setItem('aoe4_recorded', JSON.stringify(arr));
+                        }
+                    }catch(e){ localStorage.setItem('aoe4_recorded', JSON.stringify(arr)); }
+                } else {
+                    localStorage.setItem('aoe4_recorded', JSON.stringify(arr));
                 }
-                renderRecorded();
-            }catch(e){ console.warn('Could not load recorded from cookie',e); }
+                // remove cookie after migrating
+                document.cookie = 'aoe4_recorded=;path=/;max-age=0';
+            }catch(e){ console.warn('cookie->localStorage migration failed',e); }
         }
 
         // Note: Ratings are read only from explicit `rm_*_elo` fields; no fallback rating logic is used.
@@ -533,8 +562,9 @@
             renderTeams(t1,t2);
         });
 
-        // Initial render: load saved recorded players from cookie (if any), then render UIs
-        loadRecordedFromCookie().then(()=>{ renderQueue(); renderTeams([],[]); }).catch(()=>{ renderRecorded(); renderQueue(); renderTeams([],[]); });
+        // Initial render: migrate old cookie data (if any), then load from localStorage and render UIs
+        try{ migrateCookieToLocalStorage(); }catch(e){}
+        loadRecordedFromLocalStorage().then(()=>{ renderQueue(); renderTeams([],[]); }).catch(()=>{ renderRecorded(); renderQueue(); renderTeams([],[]); });
     </script>
 </body>
 </html>
