@@ -279,16 +279,6 @@
                         const player = src.splice(srcIdx,1)[0];
                         const dst = target === 'team1' ? currentTeam1 : currentTeam2;
                         dst.push(player);
-                    } else if(obj.from === 'queue'){
-                        const qIdx = Number(obj.index);
-                        if(!Number.isFinite(qIdx)) return;
-                        const player = queue.splice(qIdx,1)[0];
-                        // compute elo for player when moved from queue
-                        const custom = (player.customElo!=null && Number(player.customElo)!==0) ? Number(player.customElo) : null;
-                        const val = custom != null ? custom : (pickElo(player, getInferredMatchType(queue.length)) ?? (player.eloSolo!=null ? player.eloSolo : null));
-                        const elo = (val!=null ? val : 0);
-                        const dst = target === 'team1' ? currentTeam1 : currentTeam2;
-                        dst.push({...player, elo});
                     }
                     renderTeams(currentTeam1, currentTeam2);
                     renderQueue();
@@ -296,35 +286,9 @@
             };
         }
 
-        // allow dragging a team member back to the queue
-        function handleDropOnQueue(e){
-            e.preventDefault();
-            try{
-                const raw = e.dataTransfer.getData('application/json');
-                if(!raw) return;
-                const obj = JSON.parse(raw);
-                if(obj.from === 'team1' || obj.from === 'team2'){
-                    const src = obj.from === 'team1' ? currentTeam1 : currentTeam2;
-                    const srcIdx = Number(obj.index);
-                    if(!Number.isFinite(srcIdx)) return;
-                    const player = src.splice(srcIdx,1)[0];
-                    // push back to queue without the computed elo field
-                    const cleaned = { ...player };
-                    delete cleaned.elo;
-                    queue.push(cleaned);
-                    renderTeams(currentTeam1, currentTeam2);
-                    renderQueue();
-                }
-            }catch(err){ console.warn('drop to queue failed',err); }
-        }
+        // (queue drop handling removed — only team↔team drag/drop is supported)
 
-        // attach drop handlers to lists (backwards-compatible)
-        team1List.addEventListener('dragover', e=> e.preventDefault());
-        team2List.addEventListener('dragover', e=> e.preventDefault());
-        queueList.addEventListener('dragover', e=> e.preventDefault());
-        team1List.addEventListener('drop', handleDropOnTeam('team1'));
-        team2List.addEventListener('drop', handleDropOnTeam('team2'));
-        queueList.addEventListener('drop', handleDropOnQueue);
+        // Note: drop handlers attached to panel elements below (keep single registration)
 
         // Also attach handlers to the entire panel columns so the whole column is a drop zone
         const team1Panel = document.getElementById('team1');
@@ -332,7 +296,6 @@
         const joiningPanel = document.getElementById('joining');
         if(team1Panel){ team1Panel.addEventListener('dragover', e=> e.preventDefault()); team1Panel.addEventListener('drop', handleDropOnTeam('team1')); }
         if(team2Panel){ team2Panel.addEventListener('dragover', e=> e.preventDefault()); team2Panel.addEventListener('drop', handleDropOnTeam('team2')); }
-        if(joiningPanel){ joiningPanel.addEventListener('dragover', e=> e.preventDefault()); joiningPanel.addEventListener('drop', handleDropOnQueue); }
 
         function pickElo(p, matchType){
             // matchType: '2v2'|'3v3'|'4v4'
