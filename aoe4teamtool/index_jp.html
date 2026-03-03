@@ -29,6 +29,9 @@
                 <button id="importRecorded">インポート</button>
                 <input id="importFile" type="file" accept="application/json" style="display:none">
             </div>
+            <div class="controls" style="margin-top:6px">
+                <input id="searchRecorded" placeholder="記録を検索" style="width:100%">
+            </div>
             <ul id="recordedList"></ul>
             <small>記録済みプレイヤーをクリックしてキューに追加します。</small>
         </section>
@@ -69,9 +72,16 @@
         let currentTeam2 = [];
 
         function renderRecorded(){
-            recordedList.innerHTML = '';
+                    recordedList.innerHTML = '';
+                    const query = (document.getElementById('searchRecorded') && String(document.getElementById('searchRecorded').value).trim().toLowerCase()) || '';
             for(let i=0;i<recorded.length;i++){
                 const p = recorded[i];
+                        // filter by name or customName when a query is present
+                        if(query){
+                            const n = (p.name || '').toString().toLowerCase();
+                            const c = (p.customName || '').toString().toLowerCase();
+                            if(!n.includes(query) && !c.includes(query)) continue;
+                        }
                 const li = document.createElement('li');
                 // Display explicit rating fields or 'N/A'; do not provide fallback values here
                 const solo = (p.eloSolo!=null) ? p.eloSolo : 'N/A';
@@ -456,6 +466,10 @@
         const importFile = document.getElementById('importFile');
         importBtn.addEventListener('click', ()=> importFile.click());
         importFile.addEventListener('change', e=>{ const f = e.target.files && e.target.files[0]; if(f) importRecordedFromFile(f); importFile.value=''; });
+
+        // wire search input to re-render on input
+        const searchInput = document.getElementById('searchRecorded');
+        if(searchInput){ searchInput.addEventListener('input', ()=> renderRecorded()); }
 
         document.getElementById('sortBtn').addEventListener('click',()=>{
             // Determine match type from queue length: 4→2v2, 6→3v3, 8→4v4 (auto only)
