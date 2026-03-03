@@ -24,7 +24,10 @@
             
             <div class="controls">
                 <input id="name" placeholder="Profile ID">
-                <button id="joinBtn">Join</button>
+                <button id="joinBtn">Add</button>
+                <button id="exportRecorded">Export</button>
+                <button id="importRecorded">Import</button>
+                <input id="importFile" type="file" accept="application/json" style="display:none">
             </div>
             <ul id="recordedList"></ul>
             <small>Click a recorded player to add to queue.</small>
@@ -131,6 +134,46 @@
             }
             // Save recorded entries (ids + custom aliases) to cookie after rendering
             saveRecordedToCookie();
+        }
+
+        // Export recorded entries (id, name, customName) as JSON file
+        function exportRecordedToFile(){
+            try{
+                const data = recorded.filter(p=>p.id!=null).map(p=>({ id: p.id, name: p.name || null, customName: p.customName || null }));
+                const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'aoe4_recorded.json';
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(url);
+            }catch(e){ console.warn('export failed',e); }
+        }
+
+        // Import recorded entries from JSON file. Expected items: { id, customName }
+        async function importRecordedFromFile(file){
+            try{
+                const text = await file.text();
+                const arr = JSON.parse(text);
+                if(!Array.isArray(arr)) throw new Error('Invalid format');
+                const ids = arr.filter(it => it && it.id).map(it => it.id);
+                const fetchPromises = ids.map(id => fetchPlayer(id));
+                const results = await Promise.all(fetchPromises);
+                for(const p of results){
+                    if(!p) continue;
+                    const existingIndex = recorded.findIndex(r => r.id && p.id && r.id === p.id);
+                    if(existingIndex >= 0){ recorded[existingIndex] = { ...recorded[existingIndex], ...p }; }
+                    else { recorded.push(p); }
+                    const cookieItem = arr.find(it => Number(it.id) === Number(p.id));
+                    if(cookieItem && cookieItem.customName){
+                        const idx = recorded.findIndex(r => r.id && r.id === p.id);
+                        if(idx>=0) recorded[idx].customName = cookieItem.customName;
+                    }
+                }
+                renderRecorded(); renderQueue();
+            }catch(err){ console.warn('import failed',err); alert('Import failed: see console'); }
         }
 
         function renderQueue(){
@@ -406,6 +449,13 @@
         // Note: Ratings are read only from explicit `rm_*_elo` fields; no fallback rating logic is used.
 
         document.getElementById('clearQueue').addEventListener('click',()=>{ queue.length=0; renderQueue(); renderTeams([],[]); });
+
+        // wire export/import buttons
+        document.getElementById('exportRecorded').addEventListener('click', exportRecordedToFile);
+        const importBtn = document.getElementById('importRecorded');
+        const importFile = document.getElementById('importFile');
+        importBtn.addEventListener('click', ()=> importFile.click());
+        importFile.addEventListener('change', e=>{ const f = e.target.files && e.target.files[0]; if(f) importRecordedFromFile(f); importFile.value=''; });
 
         document.getElementById('sortBtn').addEventListener('click',()=>{
             // Determine match type from queue length: 4→2v2, 6→3v3, 8→4v4 (auto only)
