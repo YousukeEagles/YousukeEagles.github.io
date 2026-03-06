@@ -1,33 +1,96 @@
 <!doctype html>
 <html lang="en">
+
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <title>AOE4 Team Tool</title>
     <style>
-        html,body{height:100%;margin:0;font-family:Segoe UI,Arial,sans-serif}
-        .container{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;padding:12px;height:100vh;box-sizing:border-box}
-        .panel{background:#f7f7f8;border:1px solid #ddd;border-radius:6px;padding:12px;display:flex;flex-direction:column}
-        .panel h2{margin:0 0 8px 0;font-size:16px}
-        ul{list-style:none;padding:0;margin:0;overflow:auto}
-        li{padding:6px 8px;border-radius:4px;margin-bottom:6px;background:#fff;border:1px solid #e6e6e6;display:flex;justify-content:space-between;align-items:center}
-        .controls{display:flex;gap:6px;margin-bottom:8px}
-        input[type=number]{width:100px}
-        button{padding:6px 8px;border-radius:4px;border:1px solid #bbb;background:#eee;cursor:pointer}
-        .team-total{margin-top:8px;font-weight:600}
+        html,
+        body {
+            height: 100%;
+            margin: 0;
+            font-family: Segoe UI, Arial, sans-serif
+        }
+
+        .container {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 12px;
+            padding: 12px;
+            height: 100vh;
+            box-sizing: border-box
+        }
+
+        .panel {
+            background: #f7f7f8;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            padding: 12px;
+            display: flex;
+            flex-direction: column
+        }
+
+        .panel h2 {
+            margin: 0 0 8px 0;
+            font-size: 16px
+        }
+
+        ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            overflow: auto
+        }
+
+        li {
+            padding: 6px 8px;
+            border-radius: 4px;
+            margin-bottom: 6px;
+            background: #fff;
+            border: 1px solid #e6e6e6;
+            display: flex;
+            justify-content: space-between;
+            align-items: center
+        }
+
+        .controls {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 8px
+        }
+
+        input[type=number] {
+            width: 100px
+        }
+
+        button {
+            padding: 6px 8px;
+            border-radius: 4px;
+            border: 1px solid #bbb;
+            background: #eee;
+            cursor: pointer
+        }
+
+        .team-total {
+            margin-top: 8px;
+            font-weight: 600
+        }
     </style>
 </head>
+
 <body>
     <div class="container">
         <section id="recorded" class="panel">
             <h2>記録済みプレイヤー</h2>
-            
+
             <div class="controls">
                 <input id="name" placeholder="プロフィールID">
                 <button id="joinBtn">追加</button>
                 <button id="exportRecorded">エクスポート</button>
                 <button id="importRecorded">インポート</button>
                 <input id="importFile" type="file" accept="application/json" style="display:none">
+                <button id="toggleRMQM">ランク/クイック</button>
             </div>
             <div class="controls" style="margin-top:6px">
                 <input id="searchRecorded" placeholder="記録を検索" style="width:100%">
@@ -70,66 +133,133 @@
         const team2Total = document.getElementById('team2Total');
         let currentTeam1 = [];
         let currentTeam2 = [];
+        let eloType = "RM";
 
-        function renderRecorded(){
-                    recordedList.innerHTML = '';
-                    const query = (document.getElementById('searchRecorded') && String(document.getElementById('searchRecorded').value).trim().toLowerCase()) || '';
-            for(let i=0;i<recorded.length;i++){
-                const p = recorded[i];
-                        // filter by name or customName when a query is present
-                        if(query){
-                            const n = (p.name || '').toString().toLowerCase();
-                            const c = (p.customName || '').toString().toLowerCase();
-                            if(!n.includes(query) && !c.includes(query)) continue;
+        // Sync changes from recorded entry to any queued copies (match by id when present, otherwise by name)
+        function syncRecordedToQueue(rec) {
+            try {
+                for (let qi = 0; qi < queue.length; qi++) {
+                    const q = queue[qi]; if (!q) continue;
+                    if (rec.id != null && q.id != null) {
+                        if (q.id === rec.id) {
+                            if (rec.customName != null) q.customName = rec.customName; else delete q.customName;
+                            if (rec.customElo != null) q.customElo = rec.customElo; else delete q.customElo;
                         }
+                    } else if (rec.id == null) {
+                        if (q.name === rec.name) {
+                            if (rec.customName != null) q.customName = rec.customName; else delete q.customName;
+                            if (rec.customElo != null) q.customElo = rec.customElo; else delete q.customElo;
+                        }
+                    }
+                }
+            } catch (e) { console.warn('syncRecordedToQueue failed', e); }
+        }
+
+        // Sync changes from a queued item back to the recorded list when possible
+        function syncQueueToRecorded(qitem) {
+            try {
+                for (let i = 0; i < recorded.length; i++) {
+                    const r = recorded[i]; if (!r) continue;
+                    if (qitem.id != null && r.id != null) {
+                        if (qitem.id === r.id) {
+                            if (qitem.customName != null) r.customName = qitem.customName; else delete r.customName;
+                            if (qitem.customElo != null) r.customElo = qitem.customElo; else delete r.customElo;
+                            saveRecordedToLocalStorage(); renderRecorded(); return;
+                        }
+                    } else if (qitem.id == null) {
+                        if (qitem.name === r.name) {
+                            if (qitem.customName != null) r.customName = qitem.customName; else delete r.customName;
+                            if (qitem.customElo != null) r.customElo = qitem.customElo; else delete r.customElo;
+                            saveRecordedToLocalStorage(); renderRecorded(); return;
+                        }
+                    }
+                }
+            } catch (e) { console.warn('syncQueueToRecorded failed', e); }
+        }
+
+        function renderRecorded() {
+            recordedList.innerHTML = '';
+            const query = (document.getElementById('searchRecorded') && String(document.getElementById('searchRecorded').value).trim().toLowerCase()) || '';
+            for (let i = 0; i < recorded.length; i++) {
+                const p = recorded[i];
+                // filter by name or customName when a query is present
+                if (query) {
+                    const n = (p.name || '').toString().toLowerCase();
+                    const c = (p.customName || '').toString().toLowerCase();
+                    if (!n.includes(query) && !c.includes(query)) continue;
+                }
                 const li = document.createElement('li');
-                // Display explicit rating fields or 'N/A'; do not provide fallback values here
-                const solo = (p.eloSolo!=null) ? p.eloSolo : 'N/A';
-                const two = (p.elo2v2!=null) ? p.elo2v2 : 'N/A';
-                const three = (p.elo3v3!=null) ? p.elo3v3 : 'N/A';
-                const four = (p.elo4v4!=null) ? p.elo4v4 : 'N/A';
+                // Select between RM and QM ratings based on toggle, but do not provide fallbacks here (show 'N/A' if specific rating is unavailable)
+                const solo = (eloType === 'RM') ? ((p.eloSolo != null) ? p.eloSolo : 'N/A') : ((p.qm_1v1 != null) ? p.qm_1v1 : 'N/A');
+                const two = (eloType === 'RM') ? ((p.elo2v2 != null) ? p.elo2v2 : 'N/A') : ((p.qm_2v2 != null) ? p.qm_2v2 : 'N/A');
+                const three = (eloType === 'RM') ? ((p.elo3v3 != null) ? p.elo3v3 : 'N/A') : ((p.qm_3v3 != null) ? p.qm_3v3 : 'N/A');
+                const four = (eloType === 'RM') ? ((p.elo4v4 != null) ? p.elo4v4 : 'N/A') : ((p.qm_4v4 != null) ? p.qm_4v4 : 'N/A');
 
                 const infoSpan = document.createElement('span');
                 infoSpan.textContent = `${p.name} — 1v1:${solo} | 2v2:${two} | 3v3:${three} | 4v4:${four}`;
                 infoSpan.style.cursor = 'pointer';
-                infoSpan.addEventListener('click',()=>{
+                infoSpan.addEventListener('click', () => {
                     // Do not add duplicate queued entries when the same profile ID already exists in queue
-                    if(p.id != null && queue.some(q => q && q.id != null && q.id === p.id)) return;
-                    const copy = {...p};
+                    if (p.id != null && queue.some(q => q && q.id != null && q.id === p.id)) return;
+                    const copy = { ...p };
                     queue.push(copy);
                     renderQueue();
                 });
+
+                // Block for alias and customElo to line them vertically
+                const inputContainer = document.createElement('span');
+                inputContainer.style.display = 'inline-block';
+                inputContainer.style.marginLeft = '8px';
 
                 // Alias (custom display name) input for the recorded player
                 const aliasInput = document.createElement('input');
                 aliasInput.type = 'text';
                 aliasInput.placeholder = '別名';
                 aliasInput.value = p.customName != null ? p.customName : '';
-                aliasInput.style.marginLeft = '8px';
-                aliasInput.addEventListener('click', e=> e.stopPropagation());
-                aliasInput.addEventListener('change', e=>{
+                aliasInput.style.width = '100px';
+                aliasInput.addEventListener('click', e => e.stopPropagation());
+                aliasInput.addEventListener('change', e => {
                     e.stopPropagation();
                     const v = String(e.target.value).trim();
-                    if(v === ''){ delete p.customName; } else { p.customName = v; }
+                    if (v === '') { delete p.customName; } else { p.customName = v; }
+                    syncRecordedToQueue(p);
+                    // renderRecorded will call saveRecordedToLocalStorage
                     renderRecorded();
+                    renderQueue();
+                });
+
+                // Custom ELO input for recorded player (saved like customName)
+                const eloInput = document.createElement('input');
+                eloInput.type = 'number';
+                eloInput.placeholder = 'カスタムELO';
+                eloInput.value = p.customElo != null ? p.customElo : '';
+                eloInput.style.width = '100px';
+                eloInput.addEventListener('click', e => e.stopPropagation());
+                eloInput.addEventListener('change', e => {
+                    e.stopPropagation();
+                    const v = e.target.value;
+                    if (v === '' || Number(v) === 0) { delete p.customElo; } else { p.customElo = Number(v); }
+                    syncRecordedToQueue(p);
+                    renderRecorded();
+                    renderQueue();
                 });
 
                 const removeBtn = document.createElement('button');
                 removeBtn.textContent = '削除';
                 removeBtn.dataset.i = String(i);
-                removeBtn.addEventListener('click', e=>{
+                removeBtn.addEventListener('click', e => {
                     e.stopPropagation();
                     const idx = +e.target.dataset.i;
                     // Remove the recorded entry from `recorded`
-                    const removed = recorded.splice(idx,1)[0];
+                    const removed = recorded.splice(idx, 1)[0];
                     // Also remove any queued copies that reference the same profile id or name
-                    if(removed){
-                        for(let qi = queue.length - 1; qi >= 0; qi--){
+                    if (removed) {
+                        for (let qi = queue.length - 1; qi >= 0; qi--) {
                             const q = queue[qi];
-                            if(removed.id != null && q.id != null){
-                                if(q.id === removed.id) queue.splice(qi,1);
-                            } else if(removed.id == null){
-                                if(q.name === removed.name) queue.splice(qi,1);
+                            if (removed.id != null && q.id != null) {
+                                if (q.id === removed.id) queue.splice(qi, 1);
+                            } else if (removed.id == null) {
+                                if (q.name === removed.name) queue.splice(qi, 1);
                             }
                         }
                     }
@@ -138,7 +268,9 @@
                 });
 
                 li.appendChild(infoSpan);
-                li.appendChild(aliasInput);
+                inputContainer.appendChild(aliasInput);
+                inputContainer.appendChild(eloInput);
+                li.appendChild(inputContainer);
                 li.appendChild(removeBtn);
                 recordedList.appendChild(li);
             }
@@ -147,9 +279,9 @@
         }
 
         // Export recorded entries (id, name, customName) as JSON file
-        function exportRecordedToFile(){
-            try{
-                const data = recorded.filter(p=>p.id!=null).map(p=>({ id: p.id, name: p.name || null, customName: p.customName || null }));
+        function exportRecordedToFile() {
+            try {
+                const data = recorded.filter(p => p.id != null).map(p => ({ id: p.id, name: p.name || null, customName: p.customName || null, customElo: (p.customElo != null ? p.customElo : null) }));
                 const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
@@ -159,130 +291,170 @@
                 a.click();
                 a.remove();
                 URL.revokeObjectURL(url);
-            }catch(e){ console.warn('export failed',e); }
+            } catch (e) { console.warn('export failed', e); }
         }
 
-        // Import recorded entries from JSON file. Expected items: { id, customName }
-        async function importRecordedFromFile(file){
-            try{
+        // Import recorded entries from JSON file. Expected items: { id, customName, customElo } (name is ignored since it will be fetched from API)
+        async function importRecordedFromFile(file) {
+            try {
                 const text = await file.text();
                 const arr = JSON.parse(text);
-                if(!Array.isArray(arr)) throw new Error('Invalid format');
+                if (!Array.isArray(arr)) throw new Error('Invalid format');
                 const ids = arr.filter(it => it && it.id).map(it => it.id);
                 const fetchPromises = ids.map(id => fetchPlayer(id));
                 const results = await Promise.all(fetchPromises);
-                for(const p of results){
-                    if(!p) continue;
+                for (const p of results) {
+                    if (!p) continue;
                     const existingIndex = recorded.findIndex(r => r.id && p.id && r.id === p.id);
-                    if(existingIndex >= 0){ recorded[existingIndex] = { ...recorded[existingIndex], ...p }; }
+                    if (existingIndex >= 0) { recorded[existingIndex] = { ...recorded[existingIndex], ...p }; }
                     else { recorded.push(p); }
                     const cookieItem = arr.find(it => Number(it.id) === Number(p.id));
-                    if(cookieItem && cookieItem.customName){
+                    if (cookieItem) {
                         const idx = recorded.findIndex(r => r.id && r.id === p.id);
-                        if(idx>=0) recorded[idx].customName = cookieItem.customName;
+                        if (idx >= 0) {
+                            if (cookieItem.customName) recorded[idx].customName = cookieItem.customName;
+                            if (cookieItem.customElo != null) recorded[idx].customElo = cookieItem.customElo;
+                        }
                     }
                 }
                 renderRecorded(); renderQueue();
                 // persist imported entries to localStorage
                 saveRecordedToLocalStorage();
-            }catch(err){ console.warn('import failed',err); alert('インポートに失敗しました。コンソールを確認してください'); }
+            } catch (err) { console.warn('import failed', err); alert('インポートに失敗しました。コンソールを確認してください'); }
         }
 
-        function renderQueue(){
+        function renderQueue() {
             queueList.innerHTML = '';
-                // Infer match type from queue length for display: 4→2v2, 6→3v3, 8→4v4
-                const qlen = queue.length;
-                const matchTypeUsed = getInferredMatchType(qlen);
-                for(let i=0;i<queue.length;i++){
-                    const p = queue[i];
-                    // Only display ELO when a match type can be inferred (queue lengths 4, 6, 8)
-                    const baseElo = matchTypeUsed ? (pickElo(p, matchTypeUsed) ?? (p.eloSolo!=null ? p.eloSolo : null)) : null;
-                    // customElo overrides team/solo ratings when set and non-zero
-                    const useCustom = (p.customElo!=null && Number(p.customElo) !== 0);
-                    const eloVal = useCustom ? Number(p.customElo) : baseElo;
-                    const displayElo = eloVal!=null ? eloVal : '—';
-                    const li = document.createElement('li');
-                    const nameSpan = document.createElement('span');
-                    nameSpan.textContent = p.name + (matchTypeUsed ? ' — ' + displayElo : '');
-                    const customInput = document.createElement('input');
-                    customInput.type = 'number';
-                    customInput.placeholder = 'カスタムELO';
-                    customInput.value = p.customElo != null ? p.customElo : '';
-                    customInput.style.width = '80px';
-                    customInput.style.marginLeft = '8px';
-                    customInput.addEventListener('change', e=>{
-                        const v = Number(e.target.value);
-                        if(Number.isNaN(v) || v===0){ delete p.customElo; } else { p.customElo = v; }
-                        renderQueue();
-                    });
-                    const removeBtn = document.createElement('button');
-                    removeBtn.textContent = '削除'; removeBtn.dataset.i = String(i);
-                    removeBtn.addEventListener('click', e=>{ const idx = +e.target.dataset.i; queue.splice(idx,1); renderQueue(); });
-                    li.appendChild(nameSpan);
-                    li.appendChild(customInput);
-                    li.appendChild(removeBtn);
-                    queueList.appendChild(li);
-                }
+            // Sort queue by effective ELO (customElo if present, otherwise 1v1/solo elo)
+            function getQueueElo(p) {
+                if (!p) return 0;
+                const ce = p.customElo != null ? Number(p.customElo) : null;
+                if (ce != null && !Number.isNaN(ce)) return ce;
+                const s = p.eloSolo != null ? Number(p.eloSolo) : null;
+                if (s != null && !Number.isNaN(s)) return s;
+                return 0;
+            }
+            queue.sort((a, b) => getQueueElo(b) - getQueueElo(a));
+            // Infer match type from queue length for display: 4→2v2, 6→3v3, 8→4v4
+            const qlen = queue.length;
+            const matchTypeUsed = getInferredMatchType(qlen);
+            for (let i = 0; i < queue.length; i++) {
+                const p = queue[i];
+                // Show all explicit rating fields like recorded list
+                const solo = (eloType === 'RM') ? ((p.eloSolo != null) ? p.eloSolo : 'N/A') : ((p.qm_1v1 != null) ? p.qm_1v1 : 'N/A');
+                const two = (eloType === 'RM') ? ((p.elo2v2 != null) ? p.elo2v2 : 'N/A') : ((p.qm_2v2 != null) ? p.qm_2v2 : 'N/A');
+                const three = (eloType === 'RM') ? ((p.elo3v3 != null) ? p.elo3v3 : 'N/A') : ((p.qm_3v3 != null) ? p.qm_3v3 : 'N/A');
+                const four = (eloType === 'RM') ? ((p.elo4v4 != null) ? p.elo4v4 : 'N/A') : ((p.qm_4v4 != null) ? p.qm_4v4 : 'N/A');
+
+                const li = document.createElement('li');
+                const infoSpan = document.createElement('span');
+                infoSpan.textContent = `${p.name} — 1v1:${solo} | 2v2:${two} | 3v3:${three} | 4v4:${four}`;
+                infoSpan.style.cursor = 'default';
+
+                // Block for alias and customElo to line them vertically
+                const inputContainer = document.createElement('span');
+                inputContainer.style.display = 'inline-block';
+                inputContainer.style.marginLeft = '8px';
+
+                // Alias input to mirror recorded list
+                const aliasInput = document.createElement('input');
+                aliasInput.type = 'text';
+                aliasInput.placeholder = '別名';
+                aliasInput.value = p.customName != null ? p.customName : '';
+                aliasInput.style.width = '100px';
+                aliasInput.addEventListener('click', e => e.stopPropagation());
+                aliasInput.addEventListener('change', e => {
+                    e.stopPropagation();
+                    const v = String(e.target.value).trim();
+                    if (v === '') { delete p.customName; } else { p.customName = v; }
+                    syncQueueToRecorded(p);
+                    renderQueue();
+                });
+
+                // Custom ELO input (existing behavior)
+                const customInput = document.createElement('input');
+                customInput.type = 'number';
+                customInput.placeholder = 'カスタムELO';
+                customInput.value = p.customElo != null ? p.customElo : '';
+                customInput.style.width = '100px';
+                customInput.addEventListener('change', e => {
+                    const v = Number(e.target.value);
+                    if (Number.isNaN(v) || v === 0) { delete p.customElo; } else { p.customElo = v; }
+                    syncQueueToRecorded(p);
+                    renderQueue();
+                });
+
+                const removeBtn = document.createElement('button');
+                removeBtn.textContent = '削除'; removeBtn.dataset.i = String(i);
+                removeBtn.addEventListener('click', e => { const idx = +e.target.dataset.i; queue.splice(idx, 1); renderQueue(); });
+
+                li.appendChild(infoSpan);
+                li.appendChild(inputContainer);
+                inputContainer.appendChild(aliasInput);
+                inputContainer.appendChild(customInput);
+                li.appendChild(removeBtn);
+                queueList.appendChild(li);
+            }
         }
 
-        function renderTeams(t1,t2){
-                    team1List.innerHTML=''; team2List.innerHTML='';
-                    let s1=0,s2=0;
-                    // persist current teams so drag/drop can modify them
-                    currentTeam1 = t1.slice();
-                    currentTeam2 = t2.slice();
-                    // render team1
-                    for(let i=0;i<currentTeam1.length;i++){
-                        const p = currentTeam1[i];
-                        const li = document.createElement('li');
-                        li.textContent = `${p.name} — ${p.elo}`;
-                        li.draggable = true;
-                        li.dataset.from = 'team1';
-                        li.dataset.index = String(i);
-                        li.addEventListener('dragstart', e=>{
-                            e.dataTransfer.setData('application/json', JSON.stringify({from: 'team1', index: i}));
-                        });
-                        team1List.appendChild(li);
-                        s1+=p.elo;
-                    }
-                    // render team2
-                    for(let i=0;i<currentTeam2.length;i++){
-                        const p = currentTeam2[i];
-                        const li = document.createElement('li');
-                        li.textContent = `${p.name} — ${p.elo}`;
-                        li.draggable = true;
-                        li.dataset.from = 'team2';
-                        li.dataset.index = String(i);
-                        li.addEventListener('dragstart', e=>{
-                            e.dataTransfer.setData('application/json', JSON.stringify({from: 'team2', index: i}));
-                        });
-                        team2List.appendChild(li);
-                        s2+=p.elo;
-                    }
-                    team1Total.textContent = `合計ELO: ${s1}`;
-                    team2Total.textContent = `合計ELO: ${s2}`;
+        function renderTeams(t1, t2) {
+            team1List.innerHTML = ''; team2List.innerHTML = '';
+            let s1 = 0, s2 = 0;
+            // persist current teams so drag/drop can modify them
+            currentTeam1 = t1.slice();
+            currentTeam2 = t2.slice();
+            // render team1
+            for (let i = 0; i < currentTeam1.length; i++) {
+                const p = currentTeam1[i];
+                const li = document.createElement('li');
+                li.textContent = `${p.name} — ${p.elo}`;
+                li.draggable = true;
+                li.dataset.from = 'team1';
+                li.dataset.index = String(i);
+                li.addEventListener('dragstart', e => {
+                    e.dataTransfer.setData('application/json', JSON.stringify({ from: 'team1', index: i }));
+                });
+                team1List.appendChild(li);
+                s1 += p.elo;
+            }
+            // render team2
+            for (let i = 0; i < currentTeam2.length; i++) {
+                const p = currentTeam2[i];
+                const li = document.createElement('li');
+                li.textContent = `${p.name} — ${p.elo}`;
+                li.draggable = true;
+                li.dataset.from = 'team2';
+                li.dataset.index = String(i);
+                li.addEventListener('dragstart', e => {
+                    e.dataTransfer.setData('application/json', JSON.stringify({ from: 'team2', index: i }));
+                });
+                team2List.appendChild(li);
+                s2 += p.elo;
+            }
+            team1Total.textContent = `合計ELO: ${s1}`;
+            team2Total.textContent = `合計ELO: ${s2}`;
         }
 
         // Allow dropping between teams and from/to queue
-        function handleDropOnTeam(target){
-            return function(e){
+        function handleDropOnTeam(target) {
+            return function (e) {
                 e.preventDefault();
-                try{
+                try {
                     const raw = e.dataTransfer.getData('application/json');
-                    if(!raw) return;
+                    if (!raw) return;
                     const obj = JSON.parse(raw);
                     // moving from team1/team2
-                    if(obj.from === 'team1' || obj.from === 'team2'){
+                    if (obj.from === 'team1' || obj.from === 'team2') {
                         const src = obj.from === 'team1' ? currentTeam1 : currentTeam2;
                         const srcIdx = Number(obj.index);
-                        if(!Number.isFinite(srcIdx)) return;
-                        const player = src.splice(srcIdx,1)[0];
+                        if (!Number.isFinite(srcIdx)) return;
+                        const player = src.splice(srcIdx, 1)[0];
                         const dst = target === 'team1' ? currentTeam1 : currentTeam2;
                         dst.push(player);
                     }
                     renderTeams(currentTeam1, currentTeam2);
                     renderQueue();
-                }catch(err){ console.warn('drop failed',err); }
+                } catch (err) { console.warn('drop failed', err); }
             };
         }
 
@@ -294,57 +466,57 @@
         const team1Panel = document.getElementById('team1');
         const team2Panel = document.getElementById('team2');
         const joiningPanel = document.getElementById('joining');
-        if(team1Panel){ team1Panel.addEventListener('dragover', e=> e.preventDefault()); team1Panel.addEventListener('drop', handleDropOnTeam('team1')); }
-        if(team2Panel){ team2Panel.addEventListener('dragover', e=> e.preventDefault()); team2Panel.addEventListener('drop', handleDropOnTeam('team2')); }
+        if (team1Panel) { team1Panel.addEventListener('dragover', e => e.preventDefault()); team1Panel.addEventListener('drop', handleDropOnTeam('team1')); }
+        if (team2Panel) { team2Panel.addEventListener('dragover', e => e.preventDefault()); team2Panel.addEventListener('drop', handleDropOnTeam('team2')); }
 
-        function pickElo(p, matchType){
+        function pickElo(p, matchType) {
             // matchType: '2v2'|'3v3'|'4v4'
             // Return the exact team rating for the given match type, or null if unavailable (no fallback)
-            if(!p) return null;
-            if(matchType==='2v2') return (p.elo2v2!=null ? p.elo2v2 : null);
-            if(matchType==='3v3') return (p.elo3v3!=null ? p.elo3v3 : null);
-            if(matchType==='4v4') return (p.elo4v4!=null ? p.elo4v4 : null);
+            if (!p) return null;
+            if (matchType === '2v2') return (p.elo2v2 != null ? p.elo2v2 : null);
+            if (matchType === '3v3') return (p.elo3v3 != null ? p.elo3v3 : null);
+            if (matchType === '4v4') return (p.elo4v4 != null ? p.elo4v4 : null);
             return null;
         }
 
-        function getInferredMatchType(qlen){
-            if(qlen===4) return '2v2';
-            if(qlen===6) return '3v3';
-            if(qlen===8) return '4v4';
+        function getInferredMatchType(qlen) {
+            if (qlen === 4) return '2v2';
+            if (qlen === 6) return '3v3';
+            if (qlen === 8) return '4v4';
             return null;
         }
 
-        document.getElementById('joinBtn').addEventListener('click',()=>{
+        document.getElementById('joinBtn').addEventListener('click', () => {
             const name = document.getElementById('name').value.trim();
-                if(!name) return alert('プロフィールIDを入力してください');
+            if (!name) return alert('プロフィールIDを入力してください');
             // Treat numeric input as a profile ID and fetch data; otherwise add a manual recorded entry
-            if(/^[0-9]+$/.test(name)){
+            if (/^[0-9]+$/.test(name)) {
                 fetchAndAdd(name);
-                document.getElementById('name').value='';
+                document.getElementById('name').value = '';
                 return;
             }
-            const p = {name};
+            const p = { name };
             // add to recorded only (do not auto-add to queue)
             recorded.push(p);
             renderRecorded();
-            document.getElementById('name').value='';
+            document.getElementById('name').value = '';
         });
 
         // Note: fetching is triggered via the Join button for numeric profile IDs.
 
         // Fetch player data from API and return a normalized player object (does not modify `recorded`)
-        async function fetchPlayer(profileId){
+        async function fetchPlayer(profileId) {
             const url = `https://aoe4world.com/api/v0/players/${profileId}`;
-            try{
+            try {
                 const res = await fetch(url);
-                if(!res.ok) throw new Error('Fetch failed');
+                if (!res.ok) throw new Error('Fetch failed');
                 const data = await res.json();
-                function numeric(v){ return (typeof v==='number' && !Number.isNaN(v)) ? v : null; }
-                function getEloField(dataObj, fieldName, modeKeys=[]){
-                    if(dataObj && (fieldName in dataObj)) return numeric(dataObj[fieldName]);
-                    if(dataObj && dataObj.modes && Array.isArray(modeKeys)){
-                        for(const k of modeKeys){
-                            if(k in dataObj.modes && dataObj.modes[k] && typeof dataObj.modes[k].rating === 'number'){
+                function numeric(v) { return (typeof v === 'number' && !Number.isNaN(v)) ? v : null; }
+                function getEloField(dataObj, fieldName, modeKeys = []) {
+                    if (dataObj && (fieldName in dataObj)) return numeric(dataObj[fieldName]);
+                    if (dataObj && dataObj.modes && Array.isArray(modeKeys)) {
+                        for (const k of modeKeys) {
+                            if (k in dataObj.modes && dataObj.modes[k] && typeof dataObj.modes[k].rating === 'number') {
                                 return dataObj.modes[k].rating;
                             }
                         }
@@ -357,20 +529,24 @@
                     eloSolo: getEloField(data, 'rm_1v1_elo', ['rm_1v1_elo']),
                     elo2v2: getEloField(data, 'rm_2v2_elo', ['rm_2v2_elo']),
                     elo3v3: getEloField(data, 'rm_3v3_elo', ['rm_3v3_elo']),
-                    elo4v4: getEloField(data, 'rm_4v4_elo', ['rm_4v4_elo'])
+                    elo4v4: getEloField(data, 'rm_4v4_elo', ['rm_4v4_elo']),
+                    qm_1v1: getEloField(data, 'qm_1v1', ['qm_1v1']),
+                    qm_2v2: getEloField(data, 'qm_2v2', ['qm_2v2']),
+                    qm_3v3: getEloField(data, 'qm_3v3', ['qm_3v3']),
+                    qm_4v4: getEloField(data, 'qm_4v4', ['qm_4v4'])
                 };
-            }catch(err){
-                console.warn('fetchPlayer failed for',profileId,err);
+            } catch (err) {
+                console.warn('fetchPlayer failed for', profileId, err);
                 return null;
             }
         }
 
         // Fetch a player by profile ID and upsert into `recorded` (does not auto-queue)
-        async function fetchAndAdd(profileId){
+        async function fetchAndAdd(profileId) {
             const p = await fetchPlayer(profileId);
-            if(!p) return;
+            if (!p) return;
             const existingIndex = recorded.findIndex(r => r.id && p.id && r.id === p.id);
-            if(existingIndex >= 0){
+            if (existingIndex >= 0) {
                 recorded[existingIndex] = { ...recorded[existingIndex], ...p };
             } else {
                 recorded.push(p);
@@ -380,113 +556,141 @@
         }
 
         // Persist recorded players (id and customName) to localStorage for later reload
-        function saveRecordedToLocalStorage(){
-            try{
-                const data = recorded.filter(p=>p.id!=null).map(p=>({ id: p.id, customName: p.customName || null }));
+        function saveRecordedToLocalStorage() {
+            try {
+                const data = recorded.filter(p => p.id != null).map(p => ({ id: p.id, customName: p.customName || null, customElo: (p.customElo != null ? p.customElo : null) }));
                 localStorage.setItem('aoe4_recorded', JSON.stringify(data));
-            }catch(e){
-                console.warn('Could not save recorded to localStorage',e);
+            } catch (e) {
+                console.warn('Could not save recorded to localStorage', e);
             }
         }
 
         // Load recorded player IDs from localStorage and refresh `recorded` by fetching current data
-        async function loadRecordedFromLocalStorage(){
-            try{
+        async function loadRecordedFromLocalStorage() {
+            try {
                 const raw = localStorage.getItem('aoe4_recorded');
-                if(!raw) return;
+                if (!raw) return;
                 const arr = JSON.parse(raw);
-                if(!Array.isArray(arr)) return;
+                if (!Array.isArray(arr)) return;
                 const ids = arr.filter(it => it && it.id).map(it => it.id);
                 const fetchPromises = ids.map(id => fetchPlayer(id));
                 const results = await Promise.all(fetchPromises);
-                for(const p of results){
-                    if(!p) continue;
+                for (const p of results) {
+                    if (!p) continue;
                     const existingIndex = recorded.findIndex(r => r.id && p.id && r.id === p.id);
-                    if(existingIndex >= 0){ recorded[existingIndex] = { ...recorded[existingIndex], ...p }; }
+                    if (existingIndex >= 0) { recorded[existingIndex] = { ...recorded[existingIndex], ...p }; }
                     else { recorded.push(p); }
                     const item = arr.find(it => Number(it.id) === Number(p.id));
-                    if(item && item.customName){
+                    if (item) {
                         const idx = recorded.findIndex(r => r.id && r.id === p.id);
-                        if(idx>=0) recorded[idx].customName = item.customName;
+                        if (idx >= 0) {
+                            if (item.customName) recorded[idx].customName = item.customName;
+                            if (item.customElo != null) recorded[idx].customElo = item.customElo;
+                        }
                     }
                 }
                 renderRecorded();
-            }catch(e){ console.warn('Could not load recorded from localStorage',e); }
+            } catch (e) { console.warn('Could not load recorded from localStorage', e); }
         }
 
         // Migrate old cookie storage to localStorage if present (one-time)
-        function migrateCookieToLocalStorage(){
-            try{
-                const match = document.cookie.split('; ').find(row=>row.startsWith('aoe4_recorded='));
-                if(!match) return;
+        function migrateCookieToLocalStorage() {
+            try {
+                const match = document.cookie.split('; ').find(row => row.startsWith('aoe4_recorded='));
+                if (!match) return;
                 const json = decodeURIComponent(match.split('=')[1] || '');
-                if(!json) return;
+                if (!json) return;
                 const arr = JSON.parse(json);
-                if(!Array.isArray(arr)) return;
+                if (!Array.isArray(arr)) return;
+                // if localStorage has existing entries, merge deduping by id
                 const existingRaw = localStorage.getItem('aoe4_recorded');
-                if(existingRaw){
-                    try{
+                if (existingRaw) {
+                    try {
                         const existing = JSON.parse(existingRaw);
-                        if(Array.isArray(existing)){
+                        if (Array.isArray(existing)) {
                             const map = new Map();
-                            for(const it of existing){ if(it && it.id!=null) map.set(String(it.id), it); }
-                            for(const it of arr){ if(it && it.id!=null){ const key=String(it.id); const prev = map.get(key) || {}; const merged = { id: it.id, customName: (it.customName!=null? it.customName : prev.customName || null) }; map.set(key, merged); } }
+                            // add existing first
+                            for (const it of existing) { if (it && it.id != null) map.set(String(it.id), it); }
+                            // merge cookie items, prefer cookie customName/customElo if present
+                            for (const it of arr) {
+                                if (!it || it.id == null) continue;
+                                const key = String(it.id);
+                                const prev = map.get(key) || {};
+                                const merged = {
+                                    id: it.id,
+                                    customName: (it.customName != null ? it.customName : (prev.customName || null)),
+                                    customElo: (it.customElo != null ? it.customElo : (prev.customElo != null ? prev.customElo : null))
+                                };
+                                map.set(key, merged);
+                            }
                             const mergedArr = Array.from(map.values());
                             localStorage.setItem('aoe4_recorded', JSON.stringify(mergedArr));
                         } else {
                             localStorage.setItem('aoe4_recorded', JSON.stringify(arr));
                         }
-                    }catch(e){ localStorage.setItem('aoe4_recorded', JSON.stringify(arr)); }
+                    } catch (e) { localStorage.setItem('aoe4_recorded', JSON.stringify(arr)); }
                 } else {
                     localStorage.setItem('aoe4_recorded', JSON.stringify(arr));
                 }
+                // remove cookie after migrating
                 document.cookie = 'aoe4_recorded=;path=/;max-age=0';
-            }catch(e){ console.warn('cookie->localStorage migration failed',e); }
+            } catch (e) { console.warn('cookie->localStorage migration failed', e); }
         }
 
         // Note: Ratings are read only from explicit `rm_*_elo` fields; no fallback rating logic is used.
 
-        document.getElementById('clearQueue').addEventListener('click',()=>{ queue.length=0; renderQueue(); renderTeams([],[]); });
+        document.getElementById('clearQueue').addEventListener('click', () => { queue.length = 0; renderQueue(); renderTeams([], []); });
 
         // wire export/import buttons
         document.getElementById('exportRecorded').addEventListener('click', exportRecordedToFile);
         const importBtn = document.getElementById('importRecorded');
         const importFile = document.getElementById('importFile');
-        importBtn.addEventListener('click', ()=> importFile.click());
-        importFile.addEventListener('change', e=>{ const f = e.target.files && e.target.files[0]; if(f) importRecordedFromFile(f); importFile.value=''; });
+        importBtn.addEventListener('click', () => importFile.click());
+        importFile.addEventListener('change', e => { const f = e.target.files && e.target.files[0]; if (f) importRecordedFromFile(f); importFile.value = ''; });
 
         // wire search input to re-render on input
         const searchInput = document.getElementById('searchRecorded');
-        if(searchInput){ searchInput.addEventListener('input', ()=> renderRecorded()); }
+        if (searchInput) { searchInput.addEventListener('input', () => renderRecorded()); }
 
-        document.getElementById('sortBtn').addEventListener('click',()=>{
+        // wire RM/QM toggle button to switch displayed ratings in recorded and queue lists
+        document.getElementById('toggleRMQM').addEventListener('click', () => {
+            if (eloType === 'RM') {
+                eloType = 'QM';
+            } else {
+                eloType = 'RM';
+            }
+            renderQueue();
+            renderRecorded();
+        })
+
+        document.getElementById('sortBtn').addEventListener('click', () => {
             // Determine match type from queue length: 4→2v2, 6→3v3, 8→4v4 (auto only)
             const qlen = queue.length;
             const matchTypeUsed = getInferredMatchType(qlen);
-            if(!matchTypeUsed){ alert('チーム分けするにはキューの人数が正確に4、6、または8である必要があります'); return; }
+            if (!matchTypeUsed) { alert('チーム分けするにはキューの人数が正確に4、6、または8である必要があります'); return; }
 
             // Recompute ELO for each queued player based on the inferred match type.
             // Missing ratings default to 0 so balancing works predictably.
-            const players = queue.map(p=>{
+            const players = queue.map(p => {
                 // customElo (if set and non-zero) overrides the team/solo rating for sorting
-                const custom = (p.customElo!=null && Number(p.customElo)!==0) ? Number(p.customElo) : null;
-                const val = custom != null ? custom : (pickElo(p, matchTypeUsed) ?? (p.eloSolo!=null ? p.eloSolo : null));
-                return { ...p, elo: (val!=null ? val : 0) };
+                const custom = (p.customElo != null && Number(p.customElo) !== 0) ? Number(p.customElo) : null;
+                const val = custom != null ? custom : (pickElo(p, matchTypeUsed) ?? (p.eloSolo != null ? p.eloSolo : null));
+                return { ...p, elo: (val != null ? val : 0) };
             });
 
             // For small player counts, perform an exhaustive search for the partition
             // that minimizes the absolute difference in total ELO between teams.
-            const total = players.reduce((s,p)=>s+p.elo,0);
+            const total = players.reduce((s, p) => s + p.elo, 0);
             const teamSize = players.length / 2;
 
-            function combinations(n,k){
+            function combinations(n, k) {
                 const res = [];
                 const combo = [];
-                function helper(start){
-                    if(combo.length === k){ res.push(combo.slice()); return; }
-                    for(let i = start; i < n; i++){
+                function helper(start) {
+                    if (combo.length === k) { res.push(combo.slice()); return; }
+                    for (let i = start; i < n; i++) {
                         combo.push(i);
-                        helper(i+1);
+                        helper(i + 1);
                         combo.pop();
                     }
                 }
@@ -498,32 +702,33 @@
             let bestDiff = Infinity;
 
             const combs = combinations(players.length, teamSize);
-            for(const combo of combs){
-                const s1 = combo.reduce((s,i)=>s + players[i].elo, 0);
+            for (const combo of combs) {
+                const s1 = combo.reduce((s, i) => s + players[i].elo, 0);
                 const s2 = total - s1;
                 const diff = Math.abs(s1 - s2);
-                if(diff < bestDiff){ bestDiff = diff; bestCombo = combo.slice(); }
+                if (diff < bestDiff) { bestDiff = diff; bestCombo = combo.slice(); }
             }
 
             let t1 = [], t2 = [];
-            if(bestCombo){
+            if (bestCombo) {
                 const set = new Set(bestCombo);
-                for(let i=0;i<players.length;i++){
-                    if(set.has(i)) t1.push(players[i]); else t2.push(players[i]);
+                for (let i = 0; i < players.length; i++) {
+                    if (set.has(i)) t1.push(players[i]); else t2.push(players[i]);
                 }
             } else {
                 // Fallback (shouldn't happen) to greedy assignment
-                players.sort((a,b)=> b.elo - a.elo);
-                let s1=0,s2=0;
-                for(const p of players){ if(s1<=s2){ t1.push(p); s1+=p.elo; } else { t2.push(p); s2+=p.elo; } }
+                players.sort((a, b) => b.elo - a.elo);
+                let s1 = 0, s2 = 0;
+                for (const p of players) { if (s1 <= s2) { t1.push(p); s1 += p.elo; } else { t2.push(p); s2 += p.elo; } }
             }
 
-            renderTeams(t1,t2);
+            renderTeams(t1, t2);
         });
 
         // Initial render: migrate old cookie data (if any), then load from localStorage and render UIs
-        try{ migrateCookieToLocalStorage(); }catch(e){}
-        loadRecordedFromLocalStorage().then(()=>{ renderQueue(); renderTeams([],[]); }).catch(()=>{ renderRecorded(); renderQueue(); renderTeams([],[]); });
+        try { migrateCookieToLocalStorage(); } catch (e) { }
+        loadRecordedFromLocalStorage().then(() => { renderQueue(); renderTeams([], []); }).catch(() => { renderRecorded(); renderQueue(); renderTeams([], []); });
     </script>
 </body>
+
 </html>
