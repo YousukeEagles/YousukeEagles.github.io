@@ -1,0 +1,88 @@
+html,
+body {
+    height: 100%;
+    margin: 0;
+    font-family: Segoe UI, Arial, sans-serif
+}
+
+.container {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    padding: 12px;
+    height: 100vh;
+    box-sizing: border-box
+}
+
+.panel {
+    background: #f7f7f8;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    padding: 12px;
+    display: flex;
+    flex-direction: column
+}
+
+.panel h2 {
+    margin: 0 0 8px 0;
+    font-size: 16px
+}
+
+ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    overflow: auto
+}
+
+li {
+    padding: 6px 8px;
+    border-radius: 4px;
+    margin-bottom: 6px;
+    background: #fff;
+    border: 1px solid #e6e6e6;
+    display: flex;
+    justify-content: space-between;
+    align-items: center
+}
+
+.controls {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 8px
+}
+
+.alias-input,
+.custom-elo-input {
+    width: 100px
+}
+
+button {
+    padding: 6px 8px;
+    border-radius: 4px;
+    border: 1px solid #bbb;
+    background: #eee;
+    cursor: pointer
+}
+
+.team-total {
+    margin-top: 8px;
+    font-weight: 600
+}
+
+#importFile {
+    display: none
+}
+
+#searchRecorded {
+    width: 100%
+}
+
+.pointer {
+    cursor: pointer
+}
+
+.input-container {
+    display: inline-block;
+    margin-left: 8px
+}

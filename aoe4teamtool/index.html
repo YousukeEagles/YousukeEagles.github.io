@@ -5,78 +5,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <title>AOE4 Team Tool</title>
-    <style>
-        html,
-        body {
-            height: 100%;
-            margin: 0;
-            font-family: Segoe UI, Arial, sans-serif
-        }
-
-        .container {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 12px;
-            padding: 12px;
-            height: 100vh;
-            box-sizing: border-box
-        }
-
-        .panel {
-            background: #f7f7f8;
-            border: 1px solid #ddd;
-            border-radius: 6px;
-            padding: 12px;
-            display: flex;
-            flex-direction: column
-        }
-
-        .panel h2 {
-            margin: 0 0 8px 0;
-            font-size: 16px
-        }
-
-        ul {
-            list-style: none;
-            padding: 0;
-            margin: 0;
-            overflow: auto
-        }
-
-        li {
-            padding: 6px 8px;
-            border-radius: 4px;
-            margin-bottom: 6px;
-            background: #fff;
-            border: 1px solid #e6e6e6;
-            display: flex;
-            justify-content: space-between;
-            align-items: center
-        }
-
-        .controls {
-            display: flex;
-            gap: 6px;
-            margin-bottom: 8px
-        }
-
-        input[type=number] {
-            width: 100px
-        }
-
-        button {
-            padding: 6px 8px;
-            border-radius: 4px;
-            border: 1px solid #bbb;
-            background: #eee;
-            cursor: pointer
-        }
-
-        .team-total {
-            margin-top: 8px;
-            font-weight: 600
-        }
-    </style>
+    <link rel="stylesheet" href="styles.css">
 </head>
 
 <body>
@@ -89,11 +18,11 @@
                 <button id="joinBtn">Add</button>
                 <button id="exportRecorded">Export</button>
                 <button id="importRecorded">Import</button>
-                <input id="importFile" type="file" accept="application/json" style="display:none">
+                <input id="importFile" type="file" accept="application/json">
                 <button id="toggleRMQM">RM/QM</button>
             </div>
             <div class="controls" style="margin-top:6px">
-                <input id="searchRecorded" placeholder="Search recorded" style="width:100%">
+                <input id="searchRecorded" placeholder="Search recorded">
             </div>
             <ul id="recordedList"></ul>
             <small>Click a recorded player to add to queue.</small>
@@ -197,7 +126,7 @@
 
                 const infoSpan = document.createElement('span');
                 infoSpan.textContent = `${p.name} — 1v1:${solo} | 2v2:${two} | 3v3:${three} | 4v4:${four}`;
-                infoSpan.style.cursor = 'pointer';
+                infoSpan.classList.add('pointer');
                 infoSpan.addEventListener('click', () => {
                     // Do not add duplicate queued entries when the same profile ID already exists in queue
                     if (p.id != null && queue.some(q => q && q.id != null && q.id === p.id)) return;
@@ -208,15 +137,14 @@
 
                 // Block for alias and customElo to line them vertically
                 const inputContainer = document.createElement('span');
-                inputContainer.style.display = 'inline-block';
-                inputContainer.style.marginLeft = '8px';
+                inputContainer.classList.add('input-container');
 
                 // Alias (custom display name) input for the recorded player
                 const aliasInput = document.createElement('input');
                 aliasInput.type = 'text';
-                aliasInput.placeholder = 'alias';
+                aliasInput.placeholder = 'Alias';
                 aliasInput.value = p.customName != null ? p.customName : '';
-                aliasInput.style.width = '100px';
+                aliasInput.classList.add('alias-input');
                 aliasInput.addEventListener('click', e => e.stopPropagation());
                 aliasInput.addEventListener('change', e => {
                     e.stopPropagation();
@@ -231,9 +159,9 @@
                 // Custom ELO input for recorded player (saved like customName)
                 const eloInput = document.createElement('input');
                 eloInput.type = 'number';
-                eloInput.placeholder = 'custom ELO';
+                eloInput.placeholder = 'Custom ELO';
                 eloInput.value = p.customElo != null ? p.customElo : '';
-                eloInput.style.width = '100px';
+                eloInput.classList.add('custom-elo-input');
                 eloInput.addEventListener('click', e => e.stopPropagation());
                 eloInput.addEventListener('change', e => {
                     e.stopPropagation();
@@ -349,19 +277,17 @@
                 const li = document.createElement('li');
                 const infoSpan = document.createElement('span');
                 infoSpan.textContent = `${p.name} — 1v1:${solo} | 2v2:${two} | 3v3:${three} | 4v4:${four}`;
-                infoSpan.style.cursor = 'default';
 
                 // Block for alias and customElo to line them vertically
                 const inputContainer = document.createElement('span');
-                inputContainer.style.display = 'inline-block';
-                inputContainer.style.marginLeft = '8px';
+                inputContainer.classList.add('input-container');
 
                 // Alias input to mirror recorded list
                 const aliasInput = document.createElement('input');
                 aliasInput.type = 'text';
-                aliasInput.placeholder = 'alias';
+                aliasInput.placeholder = 'Alias';
                 aliasInput.value = p.customName != null ? p.customName : '';
-                aliasInput.style.width = '100px';
+                aliasInput.classList.add('alias-input');
                 aliasInput.addEventListener('click', e => e.stopPropagation());
                 aliasInput.addEventListener('change', e => {
                     e.stopPropagation();
@@ -374,9 +300,9 @@
                 // Custom ELO input (existing behavior)
                 const customInput = document.createElement('input');
                 customInput.type = 'number';
-                customInput.placeholder = 'custom';
+                customInput.placeholder = 'Custom ELO';
                 customInput.value = p.customElo != null ? p.customElo : '';
-                customInput.style.width = '100px';
+                customInput.classList.add('custom-elo-input');
                 customInput.addEventListener('change', e => {
                     const v = Number(e.target.value);
                     if (Number.isNaN(v) || v === 0) { delete p.customElo; } else { p.customElo = v; }
@@ -414,6 +340,7 @@
                 li.addEventListener('dragstart', e => {
                     e.dataTransfer.setData('application/json', JSON.stringify({ from: 'team1', index: i }));
                 });
+                li.classList.add('pointer');
                 team1List.appendChild(li);
                 s1 += p.elo;
             }
@@ -428,6 +355,7 @@
                 li.addEventListener('dragstart', e => {
                     e.dataTransfer.setData('application/json', JSON.stringify({ from: 'team2', index: i }));
                 });
+                li.classList.add('pointer');
                 team2List.appendChild(li);
                 s2 += p.elo;
             }
