@@ -10,7 +10,7 @@
 
 <body>
     <div class="container">
-        <section id="recorded" class="panel">
+        <section id="recorded" class="panel full-height-panel">
             <h2>記録済みプレイヤー</h2>
 
             <div class="controls">
@@ -28,7 +28,7 @@
             <small>記録済みプレイヤーをクリックしてキューに追加します。</small>
         </section>
 
-        <section id="joining" class="panel">
+        <section id="joining" class="panel full-height-panel">
             <h2>キュー</h2>
             <ul id="queueList"></ul>
             <div style="margin-top:8px" class="controls">
@@ -47,6 +47,14 @@
             <h2>チーム2</h2>
             <ul id="team2List"></ul>
             <div id="team2Total" class="team-total"></div>
+        </section>
+
+        <section id="extraBlock" class="panel extra-panel">
+            <h2>チーム分け</h2>
+            <div>
+                <!-- チーム1とチーム2の下に配置される追加領域 -->
+                <p id="extraInfo">追加の情報をここに表示します。</p>
+            </div>
         </section>
     </div>
 
@@ -361,6 +369,8 @@
             }
             team1Total.textContent = `合計ELO: ${s1}`;
             team2Total.textContent = `合計ELO: ${s2}`;
+            // update the extra info block summarizing teams
+            updateExtraBlock(currentTeam1, currentTeam2);
         }
 
         // Allow dropping between teams and from/to queue
@@ -652,6 +662,24 @@
 
             renderTeams(t1, t2);
         });
+
+        // Update summary paragraph in the extra block showing player names and used ELOs
+        function updateExtraBlock(t1, t2) {
+            const el = document.getElementById('extraInfo');
+            if (!el) return;
+            function fmt(team, label) {
+                if (!team || team.length === 0) return `${label}: (プレイヤーなし)`;
+                const list = team.map(p => `${p.name} (${Number(p.elo || 0)})`).join(', ');
+                const total = team.reduce((s, p) => s + (Number(p.elo || 0)), 0);
+                return `${label}: ${list} 合計ELO: ${total}`;
+            }
+            const a = fmt(t1, 'チーム1');
+            const b = fmt(t2, 'チーム2');
+            el.innerText =
+                '【第X試合】\n' +
+                `【${a}】\n` +
+                `【${b}】`;
+        }
 
         // Initial render: migrate old cookie data (if any), then load from localStorage and render UIs
         try { migrateCookieToLocalStorage(); } catch (e) { }

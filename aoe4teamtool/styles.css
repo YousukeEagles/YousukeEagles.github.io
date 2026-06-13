@@ -8,6 +8,8 @@ body {
 .container {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
+    /* Make two rows: top row twice the height of bottom row */
+    grid-template-rows: 2fr 1fr;
     gap: 12px;
     padding: 12px;
     height: 100vh;
@@ -21,6 +23,19 @@ body {
     padding: 12px;
     display: flex;
     flex-direction: column
+}
+
+/* allow panels to shrink inside grid rows with overflowing children */
+.panel { min-height: 0 }
+
+.full-height-panel {
+    grid-row: 1 / span 2;
+}
+
+/* Extra panel that sits below Team 1 and Team 2 and spans their width */
+.extra-panel {
+    grid-column: 3 / span 2;
+    grid-row: 2;
 }
 
 .panel h2 {

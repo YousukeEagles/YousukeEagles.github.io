@@ -10,7 +10,7 @@
 
 <body>
     <div class="container">
-        <section id="recorded" class="panel">
+        <section id="recorded" class="panel full-height-panel">
             <h2>Recorded Players</h2>
 
             <div class="controls">
@@ -28,7 +28,7 @@
             <small>Click a recorded player to add to queue.</small>
         </section>
 
-        <section id="joining" class="panel">
+        <section id="joining" class="panel full-height-panel">
             <h2>Queue</h2>
             <ul id="queueList"></ul>
             <div style="margin-top:8px" class="controls">
@@ -47,6 +47,14 @@
             <h2>Team 2</h2>
             <ul id="team2List"></ul>
             <div id="team2Total" class="team-total"></div>
+        </section>
+
+        <section id="extraBlock" class="panel extra-panel">
+            <h2>Team Division</h2>
+            <div>
+                <!-- content area spanning under Team 1 and Team 2 -->
+                <p id="extraInfo">Additional area below teams.</p>
+            </div>
         </section>
     </div>
 
@@ -361,6 +369,8 @@
             }
             team1Total.textContent = `Total ELO: ${s1}`;
             team2Total.textContent = `Total ELO: ${s2}`;
+            // update the extra info block summarizing teams
+            updateExtraBlock(currentTeam1, currentTeam2);
         }
 
         // Allow dropping between teams and from/to queue
@@ -652,6 +662,24 @@
 
             renderTeams(t1, t2);
         });
+
+        // Update summary paragraph in the extra block showing player names and used ELOs
+        function updateExtraBlock(t1, t2) {
+            const el = document.getElementById('extraInfo');
+            if (!el) return;
+            function fmt(team, label) {
+                if (!team || team.length === 0) return `${label}: (no players)`;
+                const list = team.map(p => `${p.name} (${Number(p.elo || 0)})`).join(', ');
+                const total = team.reduce((s, p) => s + (Number(p.elo || 0)), 0);
+                return `${label}: ${list} Total ELO: ${total}`;
+            }
+            const a = fmt(t1, 'Team 1');
+            const b = fmt(t2, 'Team 2');
+            el.innerText = 
+                '【Match No. X】\n' +
+                `【${a}】\n` +
+                `【${b}】`;
+        }
 
         // Initial render: migrate old cookie data (if any), then load from localStorage and render UIs
         try { migrateCookieToLocalStorage(); } catch (e) { }
